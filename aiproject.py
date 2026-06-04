@@ -64,7 +64,7 @@ cs = plt.contour(thickness_range, flux_range, T_grid, levels=[43.5], colors='red
 plt.clabel(cs, inline=True, fontsize=12, fmt='SAFETY LIMIT (43.5°C)')
 
 plt.xlabel('Insulation Thickness [mm]')
-plt.ylabel('Device Heat Flux [W]')
+plt.ylabel('Device Heat Flux [W/(m^2)]')
 plt.title('AI-Generated Design Space: Performance vs. Safety')
 plt.grid(alpha=0.3)
 plt.savefig('design_space_contour.png', dpi=300)
