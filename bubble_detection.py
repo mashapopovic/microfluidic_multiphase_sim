@@ -2,48 +2,87 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-def measure_bubble_length(image_path, true_channel_width_um):
-    # 1. Load image and convert to grayscale
+def analyze_spiral_reactor_images(image_path, true_width_um):
     img = cv2.imread(image_path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # 2. Apply thresholding to binarize the image (makes bubbles white, liquid/walls black)
-    # Adjust the threshold values based on your video lighting!
-    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    center_x, center_y = 500, 500  # Must match the physical center of your spiral chip
+    R_in = 60                      # Inner radius in pixels
+    pitch = 70                     # Ring pitch in pixels
     
-    # 3. Find contours (boundaries) of the bubbles
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Map pixel size to microns based on known channel cross section
+    pixel_width_of_channel = 18
+    microns_per_pixel = true_width_um / pixel_width_of_channel
     
-    bubble_lengths_px = []
+    # Trace along the mathematical spiral trajectory
+    theta_steps = np.linspace(0, 5 * 2 * np.pi, 8000)
+    spiral_profile = []
+    z_distances_um = []
     
-    for cnt in contours:
-        # Filter out tiny noise particles by area
-        if cv2.contourArea(cnt) > 500: 
-            # Get bounding rectangle around the bubble
-            x, y, w, h = cv2.boundingRect(cnt)
+    current_z = 0.0
+    last_x, last_y = None, None
+    
+    for theta in theta_steps:
+        r = R_in + (pitch * theta / (2 * np.pi))
+        x = int(center_x + r * np.cos(theta))
+        y = int(center_y + r * np.sin(theta))
+        
+        if 0 <= x < gray.shape[1] and 0 <= y < gray.shape[0]:
+            # Record the pixel brightness at this exact point along the spiral path
+            spiral_profile.append(gray[y, x])
             
-            # Assuming flow is horizontal, 'w' is the bubble length in pixels
-            bubble_lengths_px.append(w)
+            # Calculate cumulative physical length traveled (z)
+            if last_x is not None:
+                step_px = np.sqrt((x - last_x)**2 + (y - last_y)**2)
+                current_z += step_px * microns_per_pixel
+            z_distances_um.append(current_z)
             
-            # Draw rectangle on original image for visual verification
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            last_x, last_y = x, y
             
-    # 4. Calibration: Use channel height/width in pixels to get scale
-    # Let's say you manually know the channel spans 150 pixels vertically in the image
-    pixel_width_of_channel = 150 
-    scale_um_per_px = true_channel_width_um / pixel_width_of_channel
+            # Draw a tiny dot on your image for diagnostic verification
+            if int(theta * 10) % 5 == 0:
+                cv2.circle(img, (x, y), 1, (0, 255, 0), -1)
+
+    # Threshold the unrolled 1D profile to isolate gas (1) from liquid (0)
+    spiral_profile = np.array(spiral_profile)
+    _, binary_profile = cv2.threshold(spiral_profile, 200, 1, cv2.THRESH_BINARY)
     
-    # Convert pixel lengths to micrometers
-    bubble_lengths_um = [l * scale_um_per_px for l in bubble_lengths_px]
+    # Track phase switches to determine individual segment lengths
+    phase_changes = np.where(np.diff(binary_profile) != 0)[0]
     
-    # Display verified image
-    plt.figure(figsize=(10, 4))
+    bubble_lengths_um = []
+    z_positions_um = []
+    
+    for i in range(len(phase_changes) - 1):
+        idx_start = phase_changes[i]
+        idx_end = phase_changes[i+1]
+        
+        # If the phase inside this segment is gas (high brightness)
+        if binary_profile[idx_start + 1] == 1:
+            length_um = z_distances_um[idx_end] - z_distances_um[idx_start]
+            bubble_lengths_um.append(length_um)
+            z_positions_um.append(z_distances_um[idx_start]) # Track WHERE this bubble is located
+            
+    # Display the tracked path overlay
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
     plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    plt.title(f"Detected Bubble Lengths: {np.round(bubble_lengths_um, 1)} um")
+    plt.title("Tracked Spiral Path (Green)")
     plt.axis('off')
+    
+    # Plot the resulting data points showing bubble lengths over reactor position
+    plt.subplot(1, 2, 2)
+    plt.scatter(np.array(z_positions_um) / 10000, bubble_lengths_um, color='blue', alpha=0.7)
+    plt.xlabel("Reactor Axial Length z (cm)")
+    plt.ylabel("Measured Bubble Length L_b (um)")
+    plt.title("Extracted Axial Data Profile")
+    plt.tight_layout()
+    plt.savefig("spiral_analysis_results.png", dpi=300, bbox_inches='tight')
     plt.show()
     
-    return bubble_lengths_um
+    return z_positions_um, bubble_lengths_um
 
-# Example usage:
-# lengths = measure_bubble_length('mid_reactor_frame.png', true_channel_width_um=400)
+
+# Run data extraction
+# z_pos, b_lens = analyze_spiral_reactor_images('test_spiral_reactor.png', true_width_um=400)
+
