@@ -12,3 +12,14 @@ __pycache__/
 *.Zone.Identifier
 *.history
 design_space.png
+*.xlsx
+*.png
+Frames/
+.bash_history
+.bash_logout
+.bashrc
+.profile
+.config/
+.copilot/
+.dotnet/
+.python_history
