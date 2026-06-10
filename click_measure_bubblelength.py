@@ -7,28 +7,28 @@ import pandas as pd
 
 # --- CONFIGURATION ---
 IMAGE_FOLDER = '/home/masas/Frames/*.bmp' 
-OUTPUT_EXCEL = 'Bubble_Spatial_History_Measurements.xlsx'
+OUTPUT_EXCEL = 'Bubble_Spatial_6Frame_Pairs.xlsx'
 
 # Your exact diagonal-to-diagonal calibration values
 TRUE_CHANNEL_WIDTH_UM = 1281.8  
 PIXELS_PER_CHANNEL = 30.286 
 ANGLE_DEG = 15
 
-# How many frames back the ghost dots should persist
-GHOST_HISTORY_LIMIT = 4  
+# Updated history depth to exactly 6 frames
+GHOST_HISTORY_LIMIT = 6  
 
 microns_per_pixel = TRUE_CHANNEL_WIDTH_UM / PIXELS_PER_CHANNEL
 angle_rad = np.radians(ANGLE_DEG)
 
-class SpatialHistoryBubbleMeasurer:
-    def __init__(self, history_limit=4):
+class SpatialPairHistoryMeasurer:
+    def __init__(self, history_limit=6):
         self.all_data = []
         self.current_frame = ""
         self.clicks = []
         
-        # Spatial Memory Queues
-        self.current_frame_centers = []   # List of (cx, cy) for the active frame
-        self.history_centers = []         # List of lists storing past frames' centers
+        # Spatial Memory Queues for complete pairs
+        self.current_frame_pairs = []   # List of ((x1, y1), (x2, y2)) tuples for this frame
+        self.history_pairs = []         # List of lists storing past frames' coordinate pairs
         self.history_limit = history_limit
         
         self.fig = None
@@ -38,7 +38,7 @@ class SpatialHistoryBubbleMeasurer:
         if event.xdata is not None and event.ydata is not None:
             self.clicks.append((event.xdata, event.ydata))
             
-            # Plot raw click points (Red = Start, Yellow = End)
+            # Plot active click points (Red = Start, Yellow = End)
             colors = ['ro', 'yo']
             self.ax.plot(event.xdata, event.ydata, colors[len(self.clicks)-1])
             self.fig.canvas.draw()
@@ -47,20 +47,20 @@ class SpatialHistoryBubbleMeasurer:
                 x1, y1 = self.clicks[0]
                 x2, y2 = self.clicks[1]
                 
-                # 1. Calculate length component
+                # 1. Calculate length metrics
                 horizontal_px = abs(x2 - x1)
                 horizontal_um = horizontal_px * microns_per_pixel
                 
-                # 2. Classify by exact pixel center coordinate
+                # Calculate center purely for data classification & label placement
                 cx = int(round((x1 + x2) / 2))
                 cy = int(round((y1 + y2) / 2))
                 
-                print(f"[{self.current_frame}] Center px: ({cx}, {cy}) -> {horizontal_um:.1f} um")
+                print(f"[{self.current_frame}] Logged Bubble -> Center: ({cx}, {cy}) | Length: {horizontal_um:.1f} um")
                 
-                # Cache this coordinate for the rolling history tracking queue
-                self.current_frame_centers.append((cx, cy))
+                # Cache BOTH exact clicked points as a pair for the historical trail
+                self.current_frame_pairs.append(((x1, y1), (x2, y2)))
                 
-                # 3. Append to dataset
+                # 2. Append data entry
                 self.all_data.append({
                     'Frame_Name': self.current_frame,
                     'Center_X_px': cx,
@@ -68,7 +68,7 @@ class SpatialHistoryBubbleMeasurer:
                     'Horizontal_Length_Microns': round(horizontal_um, 2)
                 })
                 
-                # 4. Live text overlay for current click
+                # 3. Active text label overlay
                 self.ax.text(cx, cy - 15, f"({cx}, {cy})", color='lime', 
                              fontsize=10, fontweight='bold',
                              bbox=dict(facecolor='black', alpha=0.6, edgecolor='none', boxstyle='round,pad=0.2'))
@@ -77,27 +77,27 @@ class SpatialHistoryBubbleMeasurer:
                 self.clicks.clear()
 
     def finalize_frame(self):
-        # Append current frame's centers to the rolling historical timeline
-        self.history_centers.append(list(self.current_frame_centers))
+        # Push this frame's complete click pairs to history
+        self.history_pairs.append(list(self.current_frame_pairs))
         
-        # Trim history if it exceeds our frame depth limit (e.g., keeping last 4 frames)
-        if len(self.history_centers) > self.history_limit:
-            self.history_centers.pop(0)
+        # Maintain strict 6-frame rolling queue depth
+        if len(self.history_pairs) > self.history_limit:
+            self.history_pairs.pop(0)
             
-        self.current_frame_centers.clear()
+        self.current_frame_pairs.clear()
 
 # --- MAIN RUNTIME LOOP ---
-measurer = SpatialHistoryBubbleMeasurer(history_limit=GHOST_HISTORY_LIMIT)
+measurer = SpatialPairHistoryMeasurer(history_limit=GHOST_HISTORY_LIMIT)
 image_files = sorted(glob.glob(IMAGE_FOLDER))
 
 if not image_files:
     print(f"Error: No images found matching the path: {IMAGE_FOLDER}")
 else:
-    print(f"Found {len(image_files)} frames. Starting spatial history loop...\n")
+    print(f"Found {len(image_files)} frames. Starting 6-frame pair loop...\n")
     print(f"INSTRUCTIONS:")
-    print(f"1. Fading blue dots show a tracking trail up to {GHOST_HISTORY_LIMIT} frames back.")
-    print(f"2. Only the most recent historical frame displays its coordinate text to minimize clutter.")
-    print(f"3. Close the window to advance frames. Ctrl+C in terminal saves progress and quits.\n")
+    print(f"1. Fading blue dots display BOTH boundary points clicked up to 6 frames ago.")
+    print(f"2. A subtle dashed blue line links past point pairs to clarify bubble spans.")
+    print(f"3. Close the window to advance frames. Ctrl+C in terminal saves and quits.\n")
 
 try:
     for file_path in image_files:
@@ -112,29 +112,33 @@ try:
         measurer.fig = fig
         measurer.ax = ax
         
-        # Display main frame
         ax.imshow(img, cmap='gray')
         
-        # --- PLOT ROLLING GHOST TRAILS FROM PAST FRAMES ---
-        total_history_depth = len(measurer.history_centers)
-        for history_idx, past_centers in enumerate(measurer.history_centers):
-            # Calculate frame age (1 = immediate previous frame, 4 = oldest frame in memory)
+        # --- PLOT 6-FRAME GHOST BOUNDARY PAIRS ---
+        total_history_depth = len(measurer.history_pairs)
+        for history_idx, past_pairs in enumerate(measurer.history_pairs):
             frame_age = total_history_depth - history_idx
             
-            # Scale transparency dynamically (older frames = more transparent)
-            alpha_val = 0.55 / frame_age 
+            # Calculate fading alpha value (age 1 = sharpest, age 6 = faintest)
+            alpha_val = 0.6 / frame_age 
             
-            for px, py in past_centers:
-                # Draw historical trail markers
-                ax.plot(px, py, 'bo', alpha=alpha_val, markersize=5)
+            for p1, p2 in past_pairs:
+                # Render both past boundary clicks as ghost dots
+                ax.plot(p1[0], p1[1], 'bo', alpha=alpha_val, markersize=5)
+                ax.plot(p2[0], p2[1], 'bo', alpha=alpha_val, markersize=5)
                 
-                # Only overlay text labels for the immediate previous frame (Age == 1)
+                # Draw a faint connecting line to show the historic bubble width context
+                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'b--', alpha=alpha_val * 0.4, linewidth=1)
+                
+                # Only show text overlay for the immediate previous frame to keep things clean
                 if frame_age == 1:
-                    ax.text(px, py - 18, f"Prev: ({px},{py})", color='deepskyblue', 
+                    cx_prev = int((p1[0] + p2[0]) / 2)
+                    cy_prev = int((p1[1] + p2[1]) / 2)
+                    ax.text(cx_prev, cy_prev - 18, f"Prev: ({cx_prev},{cy_prev})", color='deepskyblue', 
                             alpha=0.5, fontsize=8, fontweight='bold',
                             bbox=dict(facecolor='black', alpha=0.3, edgecolor='none', boxstyle='round,pad=0.1'))
         
-        # Reference Line (15-degrees)
+        # 15-Degree Reference Line
         height, width = img.shape
         x_end = height * np.tan(angle_rad)
         ax.plot([0, x_end], [height, 0], color='red', linewidth=1, linestyle='--', label='15° Ref Line')
@@ -148,19 +152,16 @@ try:
         measurer.finalize_frame()
 
 except KeyboardInterrupt:
-    print("\n[INTERRUPTED] Stopping early. Compiling history data entries...")
+    print("\n[INTERRUPTED] Stopping early. Saving compiled data entries...")
 
 # --- EXPORT TO SPREADSHEET ---
 if measurer.all_data:
     df = pd.DataFrame(measurer.all_data)
-    
-    # Sort logically by frame timeline, then spatial placement
     df = df.sort_values(by=['Frame_Name', 'Center_Y_px', 'Center_X_px'])
-    
     df.to_excel(OUTPUT_EXCEL, index=False)
     print("\n=====================================")
     print("ANALYSIS COMPLETE!")
-    print(f"Spatial history data saved to: {OUTPUT_EXCEL}")
+    print(f"Data saved cleanly to: {OUTPUT_EXCEL}")
     print("=====================================")
 else:
     print("\nNo measurements recorded.")
