@@ -7,31 +7,29 @@ import pandas as pd
 
 # --- CONFIGURATION ---
 IMAGE_FOLDER = '/home/masas/Frames/*.bmp' 
-OUTPUT_EXCEL = 'Bubble_Tracked_Horizontal_Measurements.xlsx'
+OUTPUT_EXCEL = 'Bubble_Spatial_History_Measurements.xlsx'
 
 # Your exact diagonal-to-diagonal calibration values
 TRUE_CHANNEL_WIDTH_UM = 1281.8  
 PIXELS_PER_CHANNEL = 30.286 
 ANGLE_DEG = 15
 
-# TRACKING THRESHOLD: 
-# Max pixel distance a bubble can travel between consecutive frames.
-MAX_TRACKING_DISTANCE_PX = 200  
+# How many frames back the ghost dots should persist
+GHOST_HISTORY_LIMIT = 4  
 
 microns_per_pixel = TRUE_CHANNEL_WIDTH_UM / PIXELS_PER_CHANNEL
 angle_rad = np.radians(ANGLE_DEG)
 
-class TrackedBubbleMeasurer:
-    def __init__(self):
+class SpatialHistoryBubbleMeasurer:
+    def __init__(self, history_limit=4):
         self.all_data = []
         self.current_frame = ""
         self.clicks = []
         
-        # Identity Tracking States
-        self.next_unique_id = 1
-        self.previous_frame_bubbles = []       # List of {'id': X, 'center': (x, y)} from last frame
-        self.current_frame_bubbles = []        # Accumulator for current frame's finalized bubbles
-        self.current_frame_matched_ids = set() # Avoid assigning the same ID to two different selections
+        # Spatial Memory Queues
+        self.current_frame_centers = []   # List of (cx, cy) for the active frame
+        self.history_centers = []         # List of lists storing past frames' centers
+        self.history_limit = history_limit
         
         self.fig = None
         self.ax = None
@@ -40,7 +38,7 @@ class TrackedBubbleMeasurer:
         if event.xdata is not None and event.ydata is not None:
             self.clicks.append((event.xdata, event.ydata))
             
-            # Plot the raw click markers on screen (Red for start, Yellow for end)
+            # Plot raw click points (Red = Start, Yellow = End)
             colors = ['ro', 'yo']
             self.ax.plot(event.xdata, event.ydata, colors[len(self.clicks)-1])
             self.fig.canvas.draw()
@@ -49,75 +47,57 @@ class TrackedBubbleMeasurer:
                 x1, y1 = self.clicks[0]
                 x2, y2 = self.clicks[1]
                 
-                # 1. Calculate length and bubble center coordinate
+                # 1. Calculate length component
                 horizontal_px = abs(x2 - x1)
                 horizontal_um = horizontal_px * microns_per_pixel
-                cx = (x1 + x2) / 2
-                cy = (y1 + y2) / 2
                 
-                # 2. Centroid Tracking Logic
-                assigned_id = None
-                min_dist = float('inf')
-                best_match_idx = -1
+                # 2. Classify by exact pixel center coordinate
+                cx = int(round((x1 + x2) / 2))
+                cy = int(round((y1 + y2) / 2))
                 
-                # Look through previous frame's coordinates for the closest match
-                for idx, prev_b in enumerate(self.previous_frame_bubbles):
-                    if prev_b['id'] in self.current_frame_matched_ids:
-                        continue 
-                    
-                    dist = np.sqrt((cx - prev_b['center'][0])**2 + (cy - prev_b['center'][1])**2)
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_match_idx = idx
+                print(f"[{self.current_frame}] Center px: ({cx}, {cy}) -> {horizontal_um:.1f} um")
                 
-                # If a close neighbor is found within constraints, persist the ID
-                if best_match_idx != -1 and min_dist < MAX_TRACKING_DISTANCE_PX:
-                    assigned_id = self.previous_frame_bubbles[best_match_idx]['id']
-                    self.current_frame_matched_ids.add(assigned_id)
-                    print(f"[{self.current_frame}] Matched Bubble ID {assigned_id} (Moved {min_dist:.1f} px)")
-                else:
-                    # Otherwise, instantiate a completely new unique bubble ID
-                    assigned_id = self.next_unique_id
-                    self.next_unique_id += 1
-                    print(f"[{self.current_frame}] New Bubble Detected -> Assigned ID {assigned_id}")
+                # Cache this coordinate for the rolling history tracking queue
+                self.current_frame_centers.append((cx, cy))
                 
-                # Cache this position for the next frame's comparison map
-                self.current_frame_bubbles.append({'id': assigned_id, 'center': (cx, cy)})
-                
-                # 3. Save entry data
+                # 3. Append to dataset
                 self.all_data.append({
                     'Frame_Name': self.current_frame,
-                    'Bubble_ID': assigned_id,
+                    'Center_X_px': cx,
+                    'Center_Y_px': cy,
                     'Horizontal_Length_Microns': round(horizontal_um, 2)
                 })
                 
-                # 4. Text overlay on plot UI so you can see current tracking live
-                self.ax.text(cx, cy - 15, f"ID {assigned_id}", color='lime', 
-                             fontsize=11, fontweight='bold',
+                # 4. Live text overlay for current click
+                self.ax.text(cx, cy - 15, f"({cx}, {cy})", color='lime', 
+                             fontsize=10, fontweight='bold',
                              bbox=dict(facecolor='black', alpha=0.6, edgecolor='none', boxstyle='round,pad=0.2'))
                 self.fig.canvas.draw()
                 
                 self.clicks.clear()
 
     def finalize_frame(self):
-        # Pass the current frame's bubble coordinates to be the history for the next frame
-        self.previous_frame_bubbles = list(self.current_frame_bubbles)
-        self.current_frame_bubbles.clear()
-        self.current_frame_matched_ids.clear()
+        # Append current frame's centers to the rolling historical timeline
+        self.history_centers.append(list(self.current_frame_centers))
+        
+        # Trim history if it exceeds our frame depth limit (e.g., keeping last 4 frames)
+        if len(self.history_centers) > self.history_limit:
+            self.history_centers.pop(0)
+            
+        self.current_frame_centers.clear()
 
 # --- MAIN RUNTIME LOOP ---
-measurer = TrackedBubbleMeasurer()
+measurer = SpatialHistoryBubbleMeasurer(history_limit=GHOST_HISTORY_LIMIT)
 image_files = sorted(glob.glob(IMAGE_FOLDER))
 
 if not image_files:
     print(f"Error: No images found matching the path: {IMAGE_FOLDER}")
 else:
-    print(f"Found {len(image_files)} frames. Starting tracking analysis loop...\n")
-    print("INSTRUCTIONS:")
-    print("1. Faint blue tags show where bubbles were in the PREVIOUS frame.")
-    print("2. Click the new start/end positions of the corresponding bubble.")
-    print("3. Close the window to save and advance frames.")
-    print("4. Press Ctrl+C in the terminal to save and exit early.\n")
+    print(f"Found {len(image_files)} frames. Starting spatial history loop...\n")
+    print(f"INSTRUCTIONS:")
+    print(f"1. Fading blue dots show a tracking trail up to {GHOST_HISTORY_LIMIT} frames back.")
+    print(f"2. Only the most recent historical frame displays its coordinate text to minimize clutter.")
+    print(f"3. Close the window to advance frames. Ctrl+C in terminal saves progress and quits.\n")
 
 try:
     for file_path in image_files:
@@ -132,18 +112,27 @@ try:
         measurer.fig = fig
         measurer.ax = ax
         
-        # Render the fresh frame
+        # Display main frame
         ax.imshow(img, cmap='gray')
         
-        # --- NEW: PLOT GHOST MARKERS FROM THE PREVIOUS FRAME ---
-        for prev_b in measurer.previous_frame_bubbles:
-            px, py = prev_b['center']
-            # Draw a faint blue circle at its old position
-            ax.plot(px, py, 'bo', alpha=0.4, markersize=6)
-            # Add a faint blue text label right above it
-            ax.text(px, py - 18, f"Last ID {prev_b['id']}", color='deepskyblue', 
-                    alpha=0.5, fontsize=9, fontweight='bold',
-                    bbox=dict(facecolor='black', alpha=0.3, edgecolor='none', boxstyle='round,pad=0.1'))
+        # --- PLOT ROLLING GHOST TRAILS FROM PAST FRAMES ---
+        total_history_depth = len(measurer.history_centers)
+        for history_idx, past_centers in enumerate(measurer.history_centers):
+            # Calculate frame age (1 = immediate previous frame, 4 = oldest frame in memory)
+            frame_age = total_history_depth - history_idx
+            
+            # Scale transparency dynamically (older frames = more transparent)
+            alpha_val = 0.55 / frame_age 
+            
+            for px, py in past_centers:
+                # Draw historical trail markers
+                ax.plot(px, py, 'bo', alpha=alpha_val, markersize=5)
+                
+                # Only overlay text labels for the immediate previous frame (Age == 1)
+                if frame_age == 1:
+                    ax.text(px, py - 18, f"Prev: ({px},{py})", color='deepskyblue', 
+                            alpha=0.5, fontsize=8, fontweight='bold',
+                            bbox=dict(facecolor='black', alpha=0.3, edgecolor='none', boxstyle='round,pad=0.1'))
         
         # Reference Line (15-degrees)
         height, width = img.shape
@@ -154,25 +143,24 @@ try:
         plt.legend(loc='upper right')
         
         cid = fig.canvas.mpl_connect('button_press_event', measurer.on_click)
-        plt.show()  # Pauses until window is closed
+        plt.show()
         
-        # Shift current tracking coordinates to history slot
         measurer.finalize_frame()
 
 except KeyboardInterrupt:
-    print("\n[INTERRUPTED] Script stopped manually. Saving compiled tracking data...")
+    print("\n[INTERRUPTED] Stopping early. Compiling history data entries...")
 
 # --- EXPORT TO SPREADSHEET ---
 if measurer.all_data:
     df = pd.DataFrame(measurer.all_data)
     
-    # Sort data logically by Bubble ID then by Frame Name
-    df = df.sort_values(by=['Bubble_ID', 'Frame_Name'])
+    # Sort logically by frame timeline, then spatial placement
+    df = df.sort_values(by=['Frame_Name', 'Center_Y_px', 'Center_X_px'])
     
     df.to_excel(OUTPUT_EXCEL, index=False)
     print("\n=====================================")
     print("ANALYSIS COMPLETE!")
-    print(f"Tracking data exported cleanly to: {OUTPUT_EXCEL}")
+    print(f"Spatial history data saved to: {OUTPUT_EXCEL}")
     print("=====================================")
 else:
     print("\nNo measurements recorded.")
