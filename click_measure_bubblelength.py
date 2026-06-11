@@ -7,7 +7,7 @@ import pandas as pd
 
 # --- CONFIGURATION ---
 IMAGE_FOLDER = '/home/masas/Frames/*.bmp' 
-OUTPUT_EXCEL = 'Bubble_Spatial_6Frame_Pairs.xlsx'
+OUTPUT_CSV = 'Bubble_Spatial_6Frame_Pairs.csv'
 
 # Your exact diagonal-to-diagonal calibration values
 TRUE_CHANNEL_WIDTH_UM = 1281.8  
@@ -154,14 +154,14 @@ try:
 except KeyboardInterrupt:
     print("\n[INTERRUPTED] Stopping early. Saving compiled data entries...")
 
-# --- EXPORT TO SPREADSHEET ---
+# --- EXPORT TO CSV ---
 if measurer.all_data:
     df = pd.DataFrame(measurer.all_data)
     df = df.sort_values(by=['Frame_Name', 'Center_Y_px', 'Center_X_px'])
-    df.to_excel(OUTPUT_EXCEL, index=False)
+    df.to_csv(OUTPUT_CSV, index=False)
     print("\n=====================================")
     print("ANALYSIS COMPLETE!")
-    print(f"Data saved cleanly to: {OUTPUT_EXCEL}")
+    print(f"Data saved cleanly to: {OUTPUT_CSV}")
     print("=====================================")
 else:
     print("\nNo measurements recorded.")
