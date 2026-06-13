@@ -4,9 +4,9 @@ import seaborn as sns
 import os
 
 # --- CONFIGURATION ---
-INPUT_CSV = 'Bubble_Spiral_Sorted.csv'  
-OUTPUT_STATS_CSV = 'Channel_Bubble_Length_Statistics.csv'
-OUTPUT_PLOT_IMAGE = 'Channel_Bubble_Length_Distributions.png'  # Clear name for the saved image file
+INPUT_CSV = 'Bubble_Spiral_Sorted_1and2.csv'  
+OUTPUT_STATS_CSV = 'Channel_Bubble_Length_Statistics_1and2.csv'
+OUTPUT_PLOT_IMAGE = 'Channel_Bubble_Length_Distributions_1and2.png'  # Clear name for the saved image file
 
 def analyze_and_save_bubble_lengths():
     if not os.path.exists(INPUT_CSV):

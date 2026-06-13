@@ -5,9 +5,9 @@ import cv2
 import os
 
 # --- CONFIG ---
-INPUT_CSV = 'Bubble_Spatial_6Frame_Pairs.csv'  # Your raw clicked data
-REFERENCE_IMAGE = '/home/masas/Frames/S1_H4_L1_p14_C04_T60_Seq001_Img000001.bmp'     # An image showing the channel layout
-OUTPUT_CSV = 'Bubble_Spiral_Sorted.csv'
+INPUT_CSV = 'Bubble_Spatial_6Frame_Pairs_1and2.csv'  # Your raw clicked data
+REFERENCE_IMAGE = '/home/masas/Frames/S1_H4_L1_p14_C04_T60_Seq001_Img000051.bmp'     # An image showing the channel layout
+OUTPUT_CSV = 'Bubble_Spiral_Sorted_1and2.csv'
 
 class ChannelTrackDefiner:
     def __init__(self, image_path):

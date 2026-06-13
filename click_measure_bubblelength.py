@@ -7,7 +7,7 @@ import pandas as pd
 
 # --- CONFIGURATION ---
 IMAGE_FOLDER = '/home/masas/Frames/*.bmp' 
-OUTPUT_CSV = 'Bubble_Spatial_6Frame_Pairs.csv'
+OUTPUT_CSV = 'Bubble_Spatial_6Frame_Pairs_2.csv'
 
 # Your exact diagonal-to-diagonal calibration values
 TRUE_CHANNEL_WIDTH_UM = 1281.8  
