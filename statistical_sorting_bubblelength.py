@@ -5,9 +5,9 @@ import os
 
 # --- CONFIGURATION ---
 GT_INPUT_CSV = 'Bubble_Spiral_Sorted_1and2.csv'          # Manual Ground Truth
-AI_INPUT_CSV = 'BB_AI_Bubble_Analysis_Sorted_ALL.csv'       # Model Outputs
-OUTPUT_STATS_CSV = 'Channel_Bubble_Comparison_Statistics_wtestset.csv'
-OUTPUT_PLOT_IMAGE = 'Channel_Bubble_SideBySide_Distributions_wtestset.png'
+AI_INPUT_CSV = 'BB_AI_Bubble_Analysis_Sorted_RAW.csv'       # Model Outputs
+OUTPUT_STATS_CSV = 'Channel_Bubble_Comparison_Statistics_RAW.csv'
+OUTPUT_PLOT_IMAGE = 'Channel_Bubble_SideBySide_Distributions_RAW.png'
 
 def analyze_and_compare_bubble_lengths():
     # 1. Verification Block & Data Load
